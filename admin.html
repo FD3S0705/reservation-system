@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>保護者懇談 予約リスト</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: "Hiragino Sans", "Meiryo", "Yu Gothic", sans-serif;
+            background-color: #f5f5f7;
+            color: #333;
+        }
+        .header {
+            background-color: #f5f5f7;
+            border-bottom: 1px solid #e1e1e1;
+        }
+        .card {
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+            margin-bottom: 16px;
+            position: relative;
+            overflow: hidden;
+            background-color: white;
+        }
+        .status-bar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 6px;
+        }
+        /* 'pending' (仮予約) のスタイル */
+        .status-pending .status-bar, .status-tentative .status-bar {
+            background-color: #FFCC00;
+        }
+        .status-confirmed .status-bar {
+            background-color: #34C759;
+        }
+        .status-canceled .status-bar {
+            background-color: #8E8E93;
+        }
+        .status-label {
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: 500;
+            text-align: center;
+            white-space: nowrap;
+            writing-mode: horizontal-tb !important;
+        }
+        /* 'pending' (仮予約) のスタイル */
+        .status-pending .status-label, .status-tentative .status-label {
+            background-color: #FFF3CD;
+            color: #856404;
+        }
+        .status-confirmed .status-label {
+            background-color: #D4EDDA;
+            color: #155724;
+        }
+        .status-canceled .status-label {
+            background-color: #F8F9FA;
+            color: #6C757D;
+        }
+        .multiple-reservation-badge {
+            background-color: #007AFF;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            position: absolute;
+            top: 12px;
+            right: 12px;
+        }
+        .action-btn {
+            writing-mode: horizontal-tb !important;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            white-space: nowrap;
+            text-align: center;
+        }
+        .btn-confirm {
+            background-color: #34C759;
+            color: white;
+        }
+        .btn-cancel {
+            background-color: #FF3B30;
+            color: white;
+        }
+        .btn-restore {
+            background-color: #007AFF;
+            color: white;
+        }
+        .filter-btn {
+            background-color: white;
+            border: 1px solid #d1d1d1;
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            margin-right: 8px;
+            margin-bottom: 8px; /* Added for better wrapping on small screens */
+        }
+        .filter-btn.active {
+            background-color: #007AFF;
+            color: white;
+            border-color: #007AFF;
+        }
+        .info-cell {
+            vertical-align: top;
+            padding-top: 10px;
+        }
+        .info-label {
+            font-size: 12px;
+            color: #8E8E93;
+            margin-bottom: 2px;
+        }
+        .info-value {
+            font-size: 14px;
+        }
+        /* Small screen adjustments */
+        @media (max-width: 640px) {
+            .info-cell {
+                width: 100% !important; /* Stack info cells vertically */
+                padding-right: 0 !important; /* Remove right padding */
+            }
+            .info-cell.w-1\/2, .info-cell.w-1\/4, .info-cell.w-1\/6 { /* Reset specific widths */
+                 width: 100% !important;
+            }
+            .flex.items-start.justify-end {
+                justify-content: flex-start !important; /* Align buttons to left on small screens */
+                margin-top: 8px;
+            }
+            .ml-auto {
+                margin-left: 0 !important; /* Remove auto margin for date filters */
+                width: 100%;
+                margin-top: 10px;
+            }
+            .filter-btn {
+                margin-right: 4px;
+                margin-bottom: 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header py-4 px-6 flex justify-center items-center">
+        <h1 class="text-xl sm:text-2xl font-semibold text-center">保護者懇談 予約リスト</h1>
+    </header>
+    
+    <!-- Filters -->
+    <div class="px-4 sm:px-6 pt-4 pb-2">
+        <div class="mb-4 flex flex-wrap items-center">
+            <button class="filter-btn active" data-filter="all">すべて</button>
+            <button class="filter-btn" data-filter="today">今日</button>
+            <button class="filter-btn" data-filter="this_week">今週</button>
+            <button class="filter-btn" data-filter="pending">仮予約のみ</button>
+            <button class="filter-btn" data-filter="confirmed">本予約のみ</button>
+            
+            <div class="ml-auto flex flex-wrap items-center mt-2 sm:mt-0">
+                <span class="text-sm mr-2 mb-1 sm:mb-0">期間:</span>
+                <input type="date" id="startDate" class="border border-gray-300 rounded px-2 py-1 text-sm mr-2 mb-1 sm:mb-0 w-full sm:w-auto">
+                <span class="text-sm mx-1 mb-1 sm:mb-0">〜</span>
+                <input type="date" id="endDate" class="border border-gray-300 rounded px-2 py-1 text-sm w-full sm:w-auto">
+            </div>
+        </div>
+        <div class="mb-4">
+            <input type="text" id="searchInput" placeholder="氏名、クラス、電話番号、備考などで検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        </div>
+    </div>
+    
+    <!-- Reservation List -->
+    <div id="reservationListContainer" class="px-4 sm:px-6 pb-8">
+        <!-- Reservation cards will be dynamically inserted here by JavaScript -->
+        <p id="noReservationsText" class="text-center text-gray-500 py-8" style="display:none;">該当する予約はありません。</p>
+    </div>
+
+    <script src="admin_script.js"></script>
+</body>
+</html>
