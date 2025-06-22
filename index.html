@@ -184,13 +184,22 @@
                 <h2 class="section-title">お子様について</h2>
                 <div id="students-container">
                     <div class="sibling-entry space-y-4 mb-4">
-                        <div>
-                            <label class="block mb-2 required">クラス</label>
-                            <select id="class-select" class="apple-input" name="student_class" required>
-                                <option value="" disabled selected>選択してください</option>
-                                <!-- クラスはJavaScriptで動的に生成 -->
-                            </select>
+                        <!-- 学年・クラス選択（横並び） -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block mb-2 required">学年</label>
+                                <select id="grade-select" class="apple-input" name="student_grade" required>
+                                    <option value="" disabled selected>学年を選択してください</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block mb-2 required">クラス</label>
+                                <select id="class-select" class="apple-input" name="student_class" required disabled>
+                                    <option value="" disabled selected>まず学年を選択してください</option>
+                                </select>
+                            </div>
                         </div>
+                        
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block mb-2 required">姓</label>
@@ -326,8 +335,8 @@
     </div>
 
     <script>
-        // Google Apps ScriptのウェブアプリURL
-        const API_URL = 'https://script.google.com/macros/s/AKfycbyQnU-asGvsfbjuz0-DFW9v5UNZzvvkjqTRNcR9NUgKRvLzNoKeevVxZ7q-w1CNh8_HOA/exec';
+        // Google Apps ScriptのウェブアプリURL（要設定）
+        const API_URL = 'YOUR_GOOGLE_APPS_SCRIPT_URL';
         
         // 選択された日時を保存する配列
         let selectedTimes = [];
@@ -338,8 +347,13 @@
         // カレンダーの表示開始日
         let calendarStartDate = new Date();
         
-        // スケジュールデータを保存する変数
-        let scheduleData = null;
+        // データを保存する変数
+        let systemData = {
+            settings: {},
+            schedule: {},
+            exceptions: {},
+            classes: {}
+        };
 
         // 曜日名の配列
         const WEEKDAY_NAMES = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];
@@ -347,48 +361,17 @@
         // ページ読み込み時の処理
         document.addEventListener('DOMContentLoaded', async function() {
             try {
-                console.log("APIへのリクエスト開始: " + API_URL);
+                console.log('初期化開始...');
                 
-                // APIからデータを取得
-                const response = await fetch(API_URL);
-                if (!response.ok) {
-                    throw new Error('APIからのデータ取得に失敗しました。ステータス: ' + response.status);
-                }
-                
-                console.log("APIからの応答を受信");
-                const data = await response.json();
-                console.log("取得したデータ:", data);
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                // スケジュールデータを保存
-                scheduleData = data;
+                // スプレッドシートからデータを取得
+                await loadSpreadsheetData();
                 
                 // システム情報を設定
-                document.getElementById('system-title').textContent = data.settings.title || '保護者懇談 予約システム';
-                document.getElementById('school-name').textContent = data.settings.schoolName || '京進の中学・高校受験TOPΣ河瀬校';
+                document.getElementById('system-title').textContent = systemData.settings.title || '保護者懇談 予約システム';
+                document.getElementById('school-name').textContent = systemData.settings.schoolName || '京進の中学・高校受験TOPΣ河瀬校';
                 
-                // クラス選択肢を設定
-                const classSelect = document.getElementById('class-select');
-                if (data.classes && data.classes.length > 0) {
-                    data.classes.forEach(className => {
-                        const option = document.createElement('option');
-                        option.value = className;
-                        option.textContent = className;
-                        classSelect.appendChild(option);
-                    });
-                }
-                
-                console.log("weekdayScheduleデータ:", data.weekdaySchedule);
-                console.log("exceptionsデータ:", data.exceptions);
-                
-                // もしスケジュールデータが空の場合はデフォルト値を設定
-                if (Object.keys(data.weekdaySchedule).length === 0) {
-                    console.log("曜日スケジュールデータが空のため、デフォルト値を設定");
-                    data.weekdaySchedule = createDefaultSchedule();
-                }
+                // 学年選択肢を初期化
+                initializeGradeOptions();
                 
                 // カレンダーを初期化
                 initCalendar();
@@ -400,57 +383,151 @@
                 document.getElementById('loading').classList.add('hidden');
                 document.getElementById('main-content').classList.remove('hidden');
                 
+                console.log('初期化完了');
+                
             } catch (error) {
                 console.error('初期化エラー:', error);
-                document.getElementById('loading').innerHTML = `
-                    <p class="text-xl font-medium text-red-500">エラーが発生しました</p>
-                    <p class="mt-2">${error.message || 'データの読み込みに失敗しました。'}</p>
-                    <button class="mt-4 apple-btn" onclick="location.reload()">再読み込み</button>
-                `;
+                // エラー時はローカルデータで初期化
+                initializeWithLocalData();
             }
         });
-        
-        // デフォルトのスケジュール情報を作成する関数
-        function createDefaultSchedule() {
-            const defaultSchedule = {};
+
+        // スプレッドシートからデータを取得する関数
+        async function loadSpreadsheetData() {
+            try {
+                console.log('スプレッドシートからデータを取得中...');
+                
+                if (API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL') {
+                    throw new Error('Google Apps ScriptのURLが設定されていません');
+                }
+                
+                const response = await fetch(API_URL);
+                
+                if (!response.ok) {
+                    throw new Error(`API エラー: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('取得したデータ:', data);
+                
+                if (!data.success) {
+                    throw new Error(data.error || 'APIからエラーが返されました');
+                }
+                
+                // データを保存
+                systemData.settings = data.settings || {};
+                systemData.schedule = data.weekdaySchedule || {};
+                systemData.exceptions = data.exceptions || {};
+                systemData.classes = data.classes || {};
+                
+                console.log('スプレッドシートデータの取得完了');
+                
+            } catch (error) {
+                console.error('スプレッドシートデータ取得エラー:', error);
+                throw error;
+            }
+        }
+
+        // ローカルデータで初期化する関数（エラー時のフォールバック）
+        function initializeWithLocalData() {
+            console.log('ローカルデータで初期化中...');
             
-            // 各曜日のデフォルト設定
-            defaultSchedule["月曜日"] = {
-                isOpen: true,
-                timeSlots: ["14:00-14:40", "15:00-15:40", "16:00-16:40", "21:30-22:10"]
+            // 基本設定
+            systemData.settings = {
+                title: '保護者懇談 予約システム',
+                schoolName: '京進の中学・高校受験TOPΣ河瀬校',
+                startDate: '2025/04/14',
+                endDate: '2025/06/30'
             };
             
-            defaultSchedule["火曜日"] = {
-                isOpen: true,
-                timeSlots: ["14:00-14:40", "15:00-15:40", "16:00-16:40", "17:00-17:40", "19:30-20:10", "21:30-22:10"]
+            // スケジュールデータ
+            systemData.schedule = {
+                '月曜日': { isOpen: true, timeSlots: ['14:00-14:40', '15:00-15:40', '16:00-16:40', '21:30-22:10'] },
+                '火曜日': { isOpen: true, timeSlots: ['14:00-14:40', '15:00-15:40', '16:00-16:40', '17:00-17:40', '19:30-20:10', '21:30-22:10'] },
+                '水曜日': { isOpen: true, timeSlots: ['14:00-14:40', '15:00-15:40', '16:00-16:40', '21:30-22:10'] },
+                '木曜日': { isOpen: false, timeSlots: [] },
+                '金曜日': { isOpen: true, timeSlots: ['14:00-14:40', '15:00-15:40', '16:00-16:40', '20:30-21:10', '21:30-22:10'] },
+                '土曜日': { isOpen: true, timeSlots: ['14:00-14:40', '15:00-15:40', '16:00-16:40', '21:30-22:10'] },
+                '日曜日': { isOpen: false, timeSlots: [] }
             };
             
-            defaultSchedule["水曜日"] = {
-                isOpen: true,
-                timeSlots: ["14:00-14:40", "15:00-15:40", "16:00-16:40", "21:30-22:10"]
+            // 例外日
+            systemData.exceptions = {
+                '2025/04/30': { isOpen: false, timeSlots: [] },
+                '2025/05/02': { isOpen: false, timeSlots: [] },
+                '2025/05/03': { isOpen: false, timeSlots: [] },
+                '2025/05/05': { isOpen: false, timeSlots: [] },
+                '2025/05/06': { isOpen: false, timeSlots: [] },
+                '2025/05/28': { isOpen: false, timeSlots: [] },
+                '2025/06/01': { isOpen: true, timeSlots: ['13:00-13:40', '14:00-14:40'] }
             };
             
-            defaultSchedule["木曜日"] = {
-                isOpen: false,
-                timeSlots: []
+            // クラスデータ
+            systemData.classes = {
+                '小1': ['Kid\'sゼミ', 'パズル道場'],
+                '小2': ['Kid\'sゼミ', 'パズル道場'],
+                '小3': ['Kid\'sゼミ', 'パズル道場'],
+                '小4': ['4H', 'Kid\'sゼミ', 'パズル道場'],
+                '小5': ['5H', '小5県中', 'パズル道場'],
+                '小6': ['6H', '小6県中', 'パズル道場'],
+                '中1': ['1H', '1A', '1K'],
+                '中2': ['2H', '2A', '2K'],
+                '中3': ['3H', '3A', '3K']
             };
             
-            defaultSchedule["金曜日"] = {
-                isOpen: true,
-                timeSlots: ["14:00-14:40", "15:00-15:40", "16:00-16:40", "20:30-21:10", "21:30-22:10"]
-            };
+            // システム情報を設定
+            document.getElementById('system-title').textContent = systemData.settings.title;
+            document.getElementById('school-name').textContent = systemData.settings.schoolName;
             
-            defaultSchedule["土曜日"] = {
-                isOpen: true,
-                timeSlots: ["14:00-14:40", "15:00-15:40", "16:00-16:40", "21:30-22:10"]
-            };
+            // 学年選択肢を初期化
+            initializeGradeOptions();
             
-            defaultSchedule["日曜日"] = {
-                isOpen: false,
-                timeSlots: []
-            };
+            // カレンダーを初期化
+            initCalendar();
             
-            return defaultSchedule;
+            // イベントリスナーを設定
+            setupEventListeners();
+            
+            // ローディング表示を非表示にしてメインコンテンツを表示
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            
+            console.log('ローカルデータでの初期化完了');
+        }
+
+        // 学年選択肢を初期化する関数
+        function initializeGradeOptions() {
+            const gradeSelect = document.getElementById('grade-select');
+            const grades = Object.keys(systemData.classes);
+            
+            // 既存のオプションをクリア（最初のプレースホルダーを除く）
+            gradeSelect.innerHTML = '<option value="" disabled selected>学年を選択してください</option>';
+            
+            grades.forEach(grade => {
+                const option = document.createElement('option');
+                option.value = grade;
+                option.textContent = grade;
+                gradeSelect.appendChild(option);
+            });
+        }
+
+        // 学年変更時にクラス選択肢を更新する関数
+        function updateClassOptions(selectedGrade) {
+            const classSelect = document.getElementById('class-select');
+            classSelect.innerHTML = '<option value="" disabled selected>クラスを選択してください</option>';
+            
+            if (selectedGrade && systemData.classes[selectedGrade]) {
+                systemData.classes[selectedGrade].forEach(className => {
+                    const option = document.createElement('option');
+                    option.value = className;
+                    option.textContent = className;
+                    classSelect.appendChild(option);
+                });
+                classSelect.disabled = false;
+            } else {
+                classSelect.innerHTML = '<option value="" disabled selected>まず学年を選択してください</option>';
+                classSelect.disabled = true;
+            }
         }
         
         // カレンダー初期化関数
@@ -526,26 +603,19 @@
         
         // 学校が開校しているかどうかを判断する関数
         function isSchoolOpen(date) {
-            if (!scheduleData) return false;
-            
             const dateStr = formatDateForAPI(date);
             const weekdayName = WEEKDAY_NAMES[date.getDay()];
             
-            console.log(`日付 ${dateStr} (${weekdayName}) の開校状態を確認中`);
-            
             // 例外日のチェック
-            if (scheduleData.exceptions && scheduleData.exceptions[dateStr]) {
-                console.log(`例外日 ${dateStr} が見つかりました: `, scheduleData.exceptions[dateStr]);
-                return scheduleData.exceptions[dateStr].isOpen;
+            if (systemData.exceptions && systemData.exceptions[dateStr]) {
+                return systemData.exceptions[dateStr].isOpen;
             }
             
             // 曜日の通常スケジュールをチェック
-            if (scheduleData.weekdaySchedule && scheduleData.weekdaySchedule[weekdayName]) {
-                console.log(`曜日 ${weekdayName} のスケジュールが見つかりました: `, scheduleData.weekdaySchedule[weekdayName]);
-                return scheduleData.weekdaySchedule[weekdayName].isOpen;
+            if (systemData.schedule && systemData.schedule[weekdayName]) {
+                return systemData.schedule[weekdayName].isOpen;
             }
             
-            console.log(`該当するスケジュールが見つかりませんでした: ${dateStr} (${weekdayName})`);
             return false;
         }
         
@@ -564,7 +634,6 @@
             
             // 時間枠を取得
             const timeSlots = getTimeSlotsForDate(date);
-            console.log(`日付 ${formatDateForAPI(date)} の時間枠: `, timeSlots);
             
             if (timeSlots && timeSlots.length > 0) {
                 // 「すべて」オプション
@@ -643,19 +712,17 @@
         
         // 指定された日付の時間枠を取得する関数
         function getTimeSlotsForDate(date) {
-            if (!scheduleData) return [];
-            
             const dateStr = formatDateForAPI(date);
             const weekdayName = WEEKDAY_NAMES[date.getDay()];
             
             // 例外日のチェック
-            if (scheduleData.exceptions && scheduleData.exceptions[dateStr]) {
-                return scheduleData.exceptions[dateStr].timeSlots || [];
+            if (systemData.exceptions && systemData.exceptions[dateStr]) {
+                return systemData.exceptions[dateStr].timeSlots || [];
             }
             
             // 曜日の通常スケジュールをチェック
-            if (scheduleData.weekdaySchedule && scheduleData.weekdaySchedule[weekdayName]) {
-                return scheduleData.weekdaySchedule[weekdayName].timeSlots || [];
+            if (systemData.schedule && systemData.schedule[weekdayName]) {
+                return systemData.schedule[weekdayName].timeSlots || [];
             }
             
             return [];
@@ -779,6 +846,11 @@
         
         // イベントリスナーを設定する関数
         function setupEventListeners() {
+            // 学年変更時のクラス更新
+            document.getElementById('grade-select').addEventListener('change', function() {
+                updateClassOptions(this.value);
+            });
+            
             // 前の週へ移動するボタン
             document.getElementById('prev-week').addEventListener('click', function() {
                 const newStartDate = new Date(calendarStartDate);
@@ -823,6 +895,24 @@
                         input.selectedIndex = 0;
                     }
                 });
+                
+                // 新しい兄弟姉妹の学年選択にイベントリスナーを追加
+                const newGradeSelect = siblingTemplate.querySelector('select[name="student_grade"]');
+                if (newGradeSelect) {
+                    // 学年選択肢を設定
+                    newGradeSelect.innerHTML = '<option value="" disabled selected>学年を選択してください</option>';
+                    Object.keys(systemData.classes).forEach(grade => {
+                        const option = document.createElement('option');
+                        option.value = grade;
+                        option.textContent = grade;
+                        newGradeSelect.appendChild(option);
+                    });
+                    
+                    newGradeSelect.addEventListener('change', function() {
+                        const classSelect = this.parentElement.parentElement.querySelector('select[name="student_class"]');
+                        updateClassOptionsForElement(classSelect, this.value);
+                    });
+                }
                 
                 container.appendChild(siblingTemplate);
                 
@@ -886,63 +976,125 @@
                 const jsonData = {};
                 
                 formData.forEach((value, key) => {
-                    jsonData[key] = value;
+                    if (jsonData[key]) {
+                        // 既存のキーがある場合は配列にする
+                        if (Array.isArray(jsonData[key])) {
+                            jsonData[key].push(value);
+                        } else {
+                            jsonData[key] = [jsonData[key], value];
+                        }
+                    } else {
+                        jsonData[key] = value;
+                    }
                 });
+                
+                // 参加者のチェックボックス値を配列として取得
+                const participantsArray = [];
+                document.querySelectorAll('input[name="participants"]:checked').forEach(checkbox => {
+                    participantsArray.push(checkbox.value);
+                });
+                jsonData.participants = participantsArray;
                 
                 // 選択した日時を追加
                 jsonData.selectedTimes = selectedTimes;
                 
-                // APIサーバーがある場合はデータを送信
-                if (API_URL) {
-                    // データをサーバーに送信する処理
-                    // fetch(API_URL, {
-                    //     method: 'POST',
-                    //     headers: {
-                    //         'Content-Type': 'application/json'
-                    //     },
-                    //     body: JSON.stringify(jsonData)
-                    // })
-                    // .then(response => response.json())
-                    // .then(data => {
-                    //     if (data.success) {
-                    //         alert('予約が受け付けられました。');
-                    //         // フォームをリセット
-                    //         this.reset();
-                    //         selectedTimes = [];
-                    //         updateSelectedTimesList();
-                    //     } else {
-                    //         alert('エラーが発生しました: ' + (data.message || '不明なエラー'));
-                    //     }
-                    // })
-                    // .catch(error => {
-                    //     alert('送信中にエラーが発生しました: ' + error.message);
-                    // });
-                }
-                
-                // テスト用：送信データを表示
-                console.log('送信データ:', jsonData);
-                alert('予約が受け付けられました。\n（テスト動作：実際のデータは送信されていません）');
-                
-                // フォームをリセット
-                this.reset();
-                selectedTimes = [];
-                document.getElementById('consultation-details').classList.add('hidden');
-                document.getElementById('email-section').classList.add('hidden');
-                document.getElementById('selected-times').classList.add('hidden');
-                document.getElementById('time-slots-container').classList.add('hidden');
-                
-                // 兄弟姉妹の入力欄をリセット
-                const container = document.getElementById('students-container');
-                const siblings = container.querySelectorAll('.sibling-entry');
-                
-                // 最初の1つ以外を削除
-                for (let i = siblings.length - 1; i > 0; i--) {
-                    container.removeChild(siblings[i]);
-                }
-                
-                // 削除ボタンを非表示
-                document.getElementById('remove-sibling').classList.add('hidden');
+                // スプレッドシートに送信
+                submitReservation(jsonData);
             });
+        }
+
+        // 予約データをスプレッドシートに送信する関数
+        async function submitReservation(data) {
+            try {
+                console.log('予約データを送信中...', data);
+                
+                if (API_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL') {
+                    // ローカルモードの場合
+                    console.log('ローカルモード: 送信データ', data);
+                    alert('予約が受け付けられました。\n（ローカルモード: 実際のデータは送信されていません）');
+                    resetForm();
+                    return;
+                }
+                
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`送信エラー: ${response.status} ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                console.log('送信結果:', result);
+                
+                if (result.success) {
+                    alert('予約が正常に受け付けられました。\n予約ID: ' + (result.reservationId || '取得中'));
+                    resetForm();
+                } else {
+                    throw new Error(result.error || '予約の保存に失敗しました');
+                }
+                
+            } catch (error) {
+                console.error('予約送信エラー:', error);
+                alert('予約の送信中にエラーが発生しました。\n' + error.message + '\n\n時間をおいて再度お試しください。');
+            }
+        }
+
+        // フォームをリセットする関数
+        function resetForm() {
+            document.getElementById('reservation-form').reset();
+            selectedTimes = [];
+            
+            // 非表示セクションを隠す
+            document.getElementById('consultation-details').classList.add('hidden');
+            document.getElementById('email-section').classList.add('hidden');
+            document.getElementById('selected-times').classList.add('hidden');
+            document.getElementById('time-slots-container').classList.add('hidden');
+            
+            // 兄弟姉妹の入力欄をリセット
+            const container = document.getElementById('students-container');
+            const siblings = container.querySelectorAll('.sibling-entry');
+            
+            // 最初の1つ以外を削除
+            for (let i = siblings.length - 1; i > 0; i--) {
+                container.removeChild(siblings[i]);
+            }
+            
+            // 削除ボタンを非表示
+            document.getElementById('remove-sibling').classList.add('hidden');
+
+            // クラス選択をリセット
+            document.getElementById('class-select').innerHTML = '<option value="" disabled selected>まず学年を選択してください</option>';
+            document.getElementById('class-select').disabled = true;
+            
+            // 日付選択をクリア
+            const selectedDate = document.querySelector('.date-circle.selected');
+            if (selectedDate) {
+                selectedDate.classList.remove('selected');
+            }
+            currentSelectedDate = null;
+        }
+
+        // 特定の要素のクラス選択肢を更新する関数（兄弟姉妹追加時用）
+        function updateClassOptionsForElement(classSelect, selectedGrade) {
+            classSelect.innerHTML = '<option value="" disabled selected>クラスを選択してください</option>';
+            
+            if (selectedGrade && systemData.classes[selectedGrade]) {
+                systemData.classes[selectedGrade].forEach(className => {
+                    const option = document.createElement('option');
+                    option.value = className;
+                    option.textContent = className;
+                    classSelect.appendChild(option);
+                });
+                classSelect.disabled = false;
+            } else {
+                classSelect.innerHTML = '<option value="" disabled selected>まず学年を選択してください</option>';
+                classSelect.disabled = true;
+            }
         }
         
         // YYYY/MM/DD形式で日付を返す関数
@@ -953,5 +1105,15 @@
             return `${year}/${month}/${day}`;
         }
     </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"rayId":"953df833ca1619da","serverTiming":{"name":{"cfExtPri":true,"cfEdge":true,"cfOrigin":true,"cfL4":true,"cfSpeedBrain":true,"cfCacheStatus":true}},"version":"2025.6.2","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
 </body>
 </html>
+    <script id="html_badge_script1">
+        window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
+            "remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDkwlz4xEQHChndNWM3Zvp7sxQzSnTL8cc1rUfwmnN166NF4%2BQJCmZ1%2BrrjwJPbOUzmGt38%2FAZnDanrxS%2BEqF%2BK1XoMevrJN90yXUTlKx2bVZ%2FIqTzkJgfIxn6q1H3eb0ao4Fi7VoT1eih6Ye%2Bq8xjpur1S61fzx51qPjyvbM7w4%2FoaZzGi%2FmMb9kF6hN4yi51S8j4Itd2fqikHuEZtruHLP%2FCRgYGJOvUgcJrO9LTo14xiG1O%2BL9%2FcKe%2BFGLezbD52u%2BuUPPYK2Y%2B7p7CDk6Hiyo8bM%2B5sziyxfbJOcyU9pcPXEPT4H9QohODV90PKU1x9V27B7l9HpiLXV1XEA0xbky3jDh7h3dNkL5OLfJT7SnT2u3N6rc1Fd0%2BMqHT3IZvexH%2F9ozKS0AxW12k0mX2pd%2BCM3%2BZnKkGssmlwnnmJ4TuHwVVCqMBMnAq1cq91GMbYmYjCLBGtenzS3Soib0h4VjfNEwcNKKB7eKsIA9lQGFT6hSx%2Bg46YTFkKNYmo40vp05rCdGlpefHggv0FCxKJk%3D";
+        window.__genspark_locale = "ja-JP";
+        window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDkwlz4xEQHChndNWM3Zvp7sxQzSnTL8cc1rUfwmnN166NF4+QJCmZ1+rrjwJPbOUzmGt38/AZnDanrxS+EqF+K1XoMevrJN90yXUTlKx2bVZ/IqTzkJgfIxn6q1H3eb0ao4Fi7VoT1eih6Ye+q8xjpur1S61fzx51qPjyvbM7w4/oaZzGi/mMb9kF6hN4yi51S8j4Itd2fqikHuEZtruHLP/CRgYGJOvUgcJrO9LTo14xiG1O+L9/cKe+FGLezbD52u+uUPPYK2Y+7p7CDk6Hiyo8bM+5sziyxfbJOcyU9pcPXEPT4H9QohODV90PKU1x9V27B7l9HpiLXV1XEA0xbky3jDh7h3dNkL5OLfJT7SnT2u3N6rc1Fd0+MqHT3IZvexH/9ozKS0AxW12k0mX2pd+CM3+ZnKkGssmlwnnmJ4TuHwVVCqMBMnAq1cq91GMbYmYjCLBGtenzS3Soib0h4VjfNEwcNKKB7eKsIA9lQGFT6hSx+g46YTFkKNYmo40vp05rCdGlpefHggv0FCxKJk=";
+    </script>
+    
+    <script id="html_notice_dialog_script" src="https://www.genspark.ai/notice_dialog.js"></script>
+    
